@@ -9,6 +9,19 @@ user_agent=os.getenv("USER_AGENT", "")
 
 print(client_id)
 
+class RedditScrapper(object):
+    def __init__(self):
+        pass
+    pass
+
+    def scrape(self, type:str ):
+        pass
+
+class NewsApiScrapper(object):
+    def __init__(self):
+        pass
+    pass   
+
 # subreddits = ["news", "worldnews", "politics", "technolgy", "economics"]
 
 # reddit = praw.Reddit(
