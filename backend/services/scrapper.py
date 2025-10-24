@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 import os
 import praw
-
+from typing import Literal
 load_dotenv()
 client_id=os.getenv("CLIENT_ID", "")
 client_secret=os.getenv("CLIENT_SECRET", "")
@@ -11,10 +11,13 @@ print(client_id)
 
 class RedditScrapper(object):
     def __init__(self):
-        pass
-    pass
-
-    def scrape(self, type:str ):
+        self.TARGET_SUBS = ["Futurology", "worldnews", "technology", "MachineLearning", "artificial"]
+        self.KEYWORDS = ["AI", "artificial intelligence", "GPT", "OpenAI", "automation", "machine learning"]
+        self.client_id=os.getenv("CLIENT_ID", "")
+        self.client_secret=os.getenv("CLIENT_SECRET", "")
+        self.user_agent=os.getenv("USER_AGENT", "")
+    
+    def scrape(self, type:Literal["top", "hot", "new", "best", ]):
         pass
 
 class NewsApiScrapper(object):
