@@ -1,0 +1,32 @@
+ai-public-eye/
+├── backend/
+│   ├── main.py              # FastAPI app
+│   ├── routes/
+│   │   ├── reddit.py
+│   │   ├── news.py
+│   │   ├── hn.py
+│   ├── services/
+│   │   ├── scraper.py       # reusable scraping functions
+│   │   ├── sentiment.py     # text analysis (VADER/TextBlob)
+│   ├── db/
+│   │   ├── mongo.py         # MongoDB connection
+│   └── models/
+│       ├── article.py
+│       ├── post.py
+│
+├── frontend/
+│   ├── pages/
+│   │   ├── index.tsx
+│   │   ├── trends.tsx
+│   ├── components/
+│   │   ├── sentimentChart.tsx
+│   │   ├── sourceStats.tsx
+│
+├── k8s/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│
+├── .github/workflows/
+│   ├── deploy.yml
+│
+└── README.md

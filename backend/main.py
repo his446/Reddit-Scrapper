@@ -15,7 +15,7 @@ reddit = praw.Reddit(
     user_agent=user_agent
 )
 print(reddit.read_only)
-# subreddit = reddit.subreddit("news")
-# for post in subreddit.hot(limit=5):
-#     print(post.title)
+subreddit = reddit.subreddit("news")
+for post in subreddit.new(limit=5):
+    print(post.keys())
 
