@@ -12,6 +12,7 @@ class PostIn(BaseModel):
     score: int
     url: str
     created_utc: str
+    saved_utc: str
     upvote_ratio: float
     comments_num: int
 
