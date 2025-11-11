@@ -1,13 +1,14 @@
-import asyncio
+from newsapi import NewsApiClient
 from datetime import datetime
 import re
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
+from backend.config.config import settings
 import os
 import praw
 from typing import Literal
 
 from backend.db.mongo import close_db, connect_db, get_last_timestamp, save_post, drop_collections, update_last_timestamp
-load_dotenv()
+# load_dotenv()
 # client_id=os.getenv("CLIENT_ID", "")
 # client_secret=os.getenv("CLIENT_SECRET", "")
 # user_agent=os.getenv("USER_AGENT", "")
@@ -15,10 +16,8 @@ load_dotenv()
 
 class Scraper(object):
     def __init__(self):
-        self.TARGET_SUBS = os.getenv(
-            "TARGET_SUBS", 'Futurology+worldnews+technology+MachineLearning+artificial').split("+")
-        self.KEYWORDS = os.getenv(
-            "KEYWORDS", "ai+artificial intelligence+machine learning+ml+deep learning+gpt+openai+chatgpt+llm+neural network").split("+")
+        self.TARGET_SUBS = settings.TARGET_SUBS.split("+")
+        self.KEYWORDS = settings.KEYWORDS.split("+")
         self.FALSE_POSITIVES = ["ukrain", "russia", "war", "politics"]
 
     def text_contains_ai(self, text: str) -> bool:
@@ -42,9 +41,9 @@ class Scraper(object):
 class RedditScraper(Scraper):
     def __init__(self):
         super().__init__()
-        self.client_id = os.getenv("CLIENT_ID", "")
-        self.client_secret = os.getenv("CLIENT_SECRET", "")
-        self.user_agent = os.getenv("USER_AGENT", "")
+        self.client_id = settings.CLIENT_ID
+        self.client_secret = settings.CLIENT_SECRET
+        self.user_agent = settings.USER_AGENT
         self.praw = praw.Reddit(
             client_id=self.client_id,
             client_secret=self.client_secret,
@@ -136,7 +135,8 @@ class RedditScraper(Scraper):
 
 class NewsApiScrapper(object):
     def __init__(self):
-        pass
+        self.client = NewsApiClient(api_key=settings.NEWSAPI_KEY)
+        # print(settings.NEWSAPI_KEY)
 
 # subreddits = ["news", "worldnews", "politics", "technolgy", "economics"]
 
@@ -170,4 +170,4 @@ def run_scraper_job(scrape_type: Literal["top", "hot", "new", "rising"] = "new",
 
 
 # if __name__ == "__main__":
-#     main()
+#     NS = NewsApiScrapper()

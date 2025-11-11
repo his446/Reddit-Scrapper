@@ -21,6 +21,8 @@ airflow/www/static/dist/
 
 # Python-specific ignores
 __pycache__/
+*/__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
