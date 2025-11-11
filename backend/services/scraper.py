@@ -22,17 +22,19 @@ class Scraper(object):
         self.FALSE_POSITIVES = ["ukrain", "russia", "war", "politics"]
 
     def text_contains_ai(self, text: str) -> bool:
+        """Check if text contains AI keywords, handling short keywords correctly."""
         if not text:
             return False
+        text = text.lower()
 
-        t = text.lower()
-
-        # Improved patterns: also match things like "A.I.", "AI-powered", "Chat GPT", "GPT5"
         for kw in self.KEYWORDS:
             kw = kw.lower().strip()
-            # Match with optional punctuation or space (e.g. "A.I.", "Chat GPT")
-            pattern = rf"\b{re.escape(kw).replace('ai', '(?:ai|a\.i\.)')}(?:[\w\-]*)\b"
-            if re.search(pattern, t):
+            if len(kw) <= 2:  # short keywords: ai, ml
+                pattern = rf"\b{re.escape(kw)}\b|\b{re.escape(kw)}-(?=\w)" 
+            else:  # longer keywords/phrases
+                pattern = rf"\b{re.escape(kw)}\b"
+
+            if re.search(pattern, text):
                 return True
         return False
 
@@ -54,21 +56,23 @@ class RedditScraper(Scraper):
         ]
 
     def post_mentions_ai(self, post: praw.reddit.Submission) -> bool:
+        """Return True if post is AI-related and not a false positive."""
         text = (post.title or "") + " " + (getattr(post, "selftext", "") or "")
-        t = text.lower()
+        text_lower = text.lower()
 
-        mentions_ai = self.text_contains_ai(t)
-        mentions_false_positive = any(fp in t for fp in self.FALSE_POSITIVES)
-
-        # Keep the post if AI is mentioned, even if false positives exist
-        if mentions_ai:
-            return True
-
-        # Otherwise, reject posts that are only about false positives
-        if mentions_false_positive:
+        # Must contain AI keyword
+        if not self.text_contains_ai(text_lower):
             return False
 
-        return False
+        # Check false-positive terms
+        for fp in self.FALSE_POSITIVES:
+            if fp in text_lower:
+                # Split into sentences, keep only if AI keyword exists in same sentence
+                sentences = re.split(r"[.!?]", text_lower)
+                for sentence in sentences:
+                    if fp in sentence and not self.text_contains_ai(sentence):
+                        return False  # discard if no AI mention in same sentence
+        return True
 
     def extract_post_data(self, post: praw.reddit.Submission) -> dict:
         data = {}
@@ -127,8 +131,7 @@ class RedditScraper(Scraper):
                     f"🔃 Updated timestamp for r/{sub}: {new_last_created_utc}")
             print(f"📊 Finished r/{sub}: {new_posts_count} posts saved.")
             total_saved_posts += new_posts_count
-        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {
-              total_saved_posts} posts saved.")
+        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {total_saved_posts} posts saved.")
 
 
 class NewsApiScrapper(object):

@@ -1,21 +1,26 @@
-from typing import Optional
-from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional, Union
+from pydantic import BaseModel, HttpUrl, field_validator
 
 
-class PostIn(BaseModel):
-    id: Optional[str]
-    source: str
-    subreddit: Optional[str]
-    author: str
-    tittle: str
-    body: Optional[str]
-    score: int
-    url: str
-    created_utc: str
-    saved_utc: str
-    upvote_ratio: float
-    comments_num: int
-
-
-{'id': '1gq4acr', 'title': 'Gemini told my brother to DIE??? Threatening response completely irrelevant to the prompt…', 'author': Redditor(name='dhersie'), 'subreddit': Subreddit(display_name='artificial'), 'score': 1714, 'upvote_ratio': 0.95, 'num_comments': 725, 'created_utc': 1731470436.0, 'url': 'https://i.redd.it/uwfg6tlkel0e1.jpeg',
- 'permalink': '/r/artificial/comments/1gq4acr/gemini_told_my_brother_to_die_threatening/', 'selftext': 'Has anyone experienced anything like this? We are thoroughly freaked out. It was acting completely normal prior to this…\n\nHere’s the link the full conversation: https://g.co/gemini/share/6d141b742a13\n'}
+class RedditPost(BaseModel):
+    """Schema for Reddit posts stored in MongoDB."""
+    id: str
+    title: str
+    author: Optional[str] = None
+    subreddit: Optional[str] = None
+    score: Optional[int] = 0
+    upvote_ratio: Optional[float] = None
+    num_comments: Optional[int] = 0
+    created_utc: Union[datetime, float, int]
+    url: Optional[HttpUrl] = None
+    permalink: Optional[str] = None
+    selftext: Optional[str] = None
+    saved_utc: datetime = datetime.now()
+    
+    @field_validator("created_utc", mode="before")
+    def convert_timestamp(cls, v):
+        """Convert numeric timestamps to datetime objects."""
+        if isinstance(v, (float, int)):
+            return datetime.fromtimestamp(v)
+        return v
