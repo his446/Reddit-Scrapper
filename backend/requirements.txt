@@ -1,0 +1,5 @@
+python-dotenv
+newsapi-python
+praw
+pymongo
+pydantic

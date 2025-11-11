@@ -1,11 +1,12 @@
 import asyncio
 from datetime import datetime
+import re
 from dotenv import load_dotenv
 import os
 import praw
 from typing import Literal
 
-from backend.db.mongo import close_db, connect_db, save_post
+from backend.db.mongo import close_db, connect_db, get_last_timestamp, save_post, drop_collections, update_last_timestamp
 load_dotenv()
 # client_id=os.getenv("CLIENT_ID", "")
 # client_secret=os.getenv("CLIENT_SECRET", "")
@@ -15,15 +16,23 @@ load_dotenv()
 class Scraper(object):
     def __init__(self):
         self.TARGET_SUBS = os.getenv(
-            "TARGET_SUBS", "Futurology+worldnews+technology+MachineLearning+artificial").split("+")
+            "TARGET_SUBS", 'Futurology+worldnews+technology+MachineLearning+artificial').split("+")
         self.KEYWORDS = os.getenv(
-            "KEYWORDS", 'ai+artificial intelligence+gpt+openai+automation+machine learning+deep learning').split("+")
+            "KEYWORDS", "ai+artificial intelligence+machine learning+ml+deep learning+gpt+openai+chatgpt+llm+neural network").split("+")
 
     def text_contains_ai(self, text: str) -> bool:
         if not text:
             return False
         t = text.lower()
-        return any(kw in t for kw in self.KEYWORDS)
+
+        for kw in self.KEYWORDS:
+            kw = kw.lower().strip()
+
+            pattern = rf"\b{re.escape(kw.lower())}[\w\-]*\b"
+            if re.search(pattern, text):
+                return True
+
+        return False
 
 
 class RedditScraper(Scraper):
@@ -43,7 +52,16 @@ class RedditScraper(Scraper):
         ]
 
     def post_mentions_ai(self, post: praw.reddit.Submission) -> bool:
-        return self.text_contains_ai(post.title or "") or self.text_contains_ai(getattr(post, "selftext", "") or "")
+        text = (post.title or "") + " " + (getattr(post, "selftext", "") or "")
+
+        if self.text_contains_ai(text):
+            return True
+
+        false_positive_terms = ["ukrain", "russia", "war", "politics"]
+        if any(fp in text.lower() for fp in false_positive_terms):
+            return False
+
+        return False
 
     def extract_post_data(self, post: praw.reddit.Submission) -> dict:
         data = {}
@@ -64,9 +82,13 @@ class RedditScraper(Scraper):
 
         return data
 
-    def scrape(self, type: Literal["top", "hot", "new", "rising"] = "top", limit: int = 25):
+    def scrape(self, type: Literal["top", "hot", "new", "rising"] = "new", limit: int = 25, incremental: bool = True):
+        total_saved_posts = 0
         for sub in self.TARGET_SUBS:
             subreddit = self.praw.subreddit(sub)
+            last_created_utc = get_last_timestamp(sub)
+            new_last_created_utc = last_created_utc
+
             if type == "top":
                 posts = subreddit.top(limit=limit)
             elif type == "hot":
@@ -77,13 +99,28 @@ class RedditScraper(Scraper):
                 posts = subreddit.rising(limit=limit)
             else:
                 raise ValueError(f"Unsupported Scraping Type: {type}")
-
+            new_posts_count = 0
             for post in posts:
+
+                if incremental and post.created_utc <= last_created_utc:
+                    continue
+
                 if self.post_mentions_ai(post):
                     doc = self.extract_post_data(post)
                     save_post(doc)
+                    new_posts_count += 1
                     print(f"✅ Saved post: {post.title[:60]}")
 
+                    if post.created_utc > new_last_created_utc:
+                        new_last_created_utc = post.created_utc
+
+            if incremental:
+                update_last_timestamp(sub, new_last_created_utc)
+                print(
+                    f"🔃 Updated timestamp for r/{sub}: {new_last_created_utc}")
+            print(f"📊 Finished r/{sub}: {new_posts_count} posts saved.")
+            total_saved_posts += new_posts_count
+        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {total_saved_posts} posts saved.")
 
 
 class NewsApiScrapper(object):
@@ -102,14 +139,24 @@ class NewsApiScrapper(object):
 # subreddit = reddit.subreddit("news")
 # for post in subreddit.new(limit=5):
 #     print(post.keys())
-def main():
+# def main():
+#     connect_db()
+#     # drop_collections()
+#     scraper = RedditScraper()
+#     scraper.scrape(limit=5000)
+
+#     close_db()
+
+
+def run_scraper_job(scrape_type: Literal["top", "hot", "new", "rising"] = "new", limit: int = 100, incremental: bool = True):
+    """Wrapper to be used by Airflow DAG."""
     connect_db()
-    
-    scraper = RedditScraper()
-    scraper.scrape()
-    
-    close_db()
+    try:
+        RS = RedditScraper()
+        RS.scrape(type=scrape_type, limit=limit, incremental=incremental)
+    finally:
+        close_db()
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

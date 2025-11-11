@@ -1,2 +1,48 @@
 .env
-.python-version
+
+airflow.cfg
+unittests.cfg
+airflow_login.py
+dbinit.py
+initdb.py
+secrets.py
+simple_auth_manager_passwords.json.generated
+
+# Airflow databases
+airflow.db*
+unittests.db
+
+# Airflow temporary artifacts and logs
+airflow/logs/
+airflow-webserver.pid
+airflow/git_version
+airflow/www/static/coverage/
+airflow/www/static/dist/
+
+# Python-specific ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.Python.env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Editor and OS specific files (examples)
+.DS_Store
+.vscode/
+*.log
