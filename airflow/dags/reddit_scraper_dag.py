@@ -45,7 +45,7 @@ with DAG(
     dag_id="reddit_scraper_dag",
     default_args=default_args,
     description="Scrape AI-related Reddit posts and store them in MongoDB",
-    schedule="@hourly",  # hourly scraping
+    schedule="0 */12 * * *",  # every 12 hours scraping
     start_date=datetime(2025, 1, 1),
     catchup=False,
     tags=["reddit", "ai", "scraper"],
@@ -56,7 +56,7 @@ with DAG(
         python_callable=run_scraper_job,
         op_kwargs={
             "scrape_type": "new",
-            "limit": 2000,
+            "limit": 1000,
             "incremental": True,
         },
     )

@@ -19,19 +19,21 @@ class Scraper(object):
             "TARGET_SUBS", 'Futurology+worldnews+technology+MachineLearning+artificial').split("+")
         self.KEYWORDS = os.getenv(
             "KEYWORDS", "ai+artificial intelligence+machine learning+ml+deep learning+gpt+openai+chatgpt+llm+neural network").split("+")
+        self.FALSE_POSITIVES = ["ukrain", "russia", "war", "politics"]
 
     def text_contains_ai(self, text: str) -> bool:
         if not text:
             return False
+
         t = text.lower()
 
+        # Improved patterns: also match things like "A.I.", "AI-powered", "Chat GPT", "GPT5"
         for kw in self.KEYWORDS:
             kw = kw.lower().strip()
-
-            pattern = rf"\b{re.escape(kw.lower())}[\w\-]*\b"
-            if re.search(pattern, text):
+            # Match with optional punctuation or space (e.g. "A.I.", "Chat GPT")
+            pattern = rf"\b{re.escape(kw).replace('ai', '(?:ai|a\.i\.)')}(?:[\w\-]*)\b"
+            if re.search(pattern, t):
                 return True
-
         return False
 
 
@@ -53,12 +55,17 @@ class RedditScraper(Scraper):
 
     def post_mentions_ai(self, post: praw.reddit.Submission) -> bool:
         text = (post.title or "") + " " + (getattr(post, "selftext", "") or "")
+        t = text.lower()
 
-        if self.text_contains_ai(text):
+        mentions_ai = self.text_contains_ai(t)
+        mentions_false_positive = any(fp in t for fp in self.FALSE_POSITIVES)
+
+        # Keep the post if AI is mentioned, even if false positives exist
+        if mentions_ai:
             return True
 
-        false_positive_terms = ["ukrain", "russia", "war", "politics"]
-        if any(fp in text.lower() for fp in false_positive_terms):
+        # Otherwise, reject posts that are only about false positives
+        if mentions_false_positive:
             return False
 
         return False
@@ -120,7 +127,8 @@ class RedditScraper(Scraper):
                     f"🔃 Updated timestamp for r/{sub}: {new_last_created_utc}")
             print(f"📊 Finished r/{sub}: {new_posts_count} posts saved.")
             total_saved_posts += new_posts_count
-        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {total_saved_posts} posts saved.")
+        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {
+              total_saved_posts} posts saved.")
 
 
 class NewsApiScrapper(object):
