@@ -2,12 +2,13 @@ from newsapi import NewsApiClient
 from datetime import datetime
 import re
 # from dotenv import load_dotenv
-from backend.config.config import settings
-import os
+from backend.config import settings
+import math
 import praw
 from typing import Literal
+from newspaper import Article
 
-from backend.db.mongo import close_db, connect_db, get_last_timestamp, save_post, drop_collections, update_last_timestamp
+from backend.db.mongo import close_db, connect_db, get_last_news_timestamp, get_last_reddit_timestamp, save_newsapi_article, save_post, update_last_news_timestamp, update_last_reddit_timestamp
 # load_dotenv()
 # client_id=os.getenv("CLIENT_ID", "")
 # client_secret=os.getenv("CLIENT_SECRET", "")
@@ -29,7 +30,7 @@ class Scraper(object):
         for kw in self.KEYWORDS:
             kw = kw.lower().strip()
             if len(kw) <= 2:  # short keywords: ai, ml
-                pattern = rf"\b{re.escape(kw)}\b|\b{re.escape(kw)}-(?=\w)" 
+                pattern = rf"\b{re.escape(kw)}\b|\b{re.escape(kw)}-(?=\w)"
             else:  # longer keywords/phrases
                 pattern = rf"\b{re.escape(kw)}\b"
 
@@ -96,7 +97,7 @@ class RedditScraper(Scraper):
         total_saved_posts = 0
         for sub in self.TARGET_SUBS:
             subreddit = self.praw.subreddit(sub)
-            last_created_utc = get_last_timestamp(sub)
+            last_created_utc = get_last_reddit_timestamp(sub)
             new_last_created_utc = last_created_utc
 
             if type == "top":
@@ -125,49 +126,138 @@ class RedditScraper(Scraper):
                         new_last_created_utc = post.created_utc
 
             if incremental:
-                update_last_timestamp(sub, new_last_created_utc)
+                update_last_reddit_timestamp(sub, new_last_created_utc)
                 print(
                     f"🔃 Updated timestamp for r/{sub}: {new_last_created_utc}")
             print(f"📊 Finished r/{sub}: {new_posts_count} posts saved.")
             total_saved_posts += new_posts_count
-        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {total_saved_posts} posts saved.")
+        print(f"🏁 Finished {", ".join([f"r/{sub}" for sub in self.TARGET_SUBS])}: {
+              total_saved_posts} posts saved.")
 
 
 class NewsApiScrapper(object):
     def __init__(self):
         self.client = NewsApiClient(api_key=settings.NEWSAPI_KEY)
-        # print(settings.NEWSAPI_KEY)
+        self.query = (
+            '"AI" OR "artificial intelligence" OR "ChatGPT" OR "OpenAI" '
+            'OR "machine learning" OR "GPT" OR "automation" OR "deep learning" '
+            'OR "neural network" OR "LLM" OR "generative AI"'
+        )
 
-# subreddits = ["news", "worldnews", "politics", "technolgy", "economics"]
+    def fetch_full_content(self, url: str) -> str | None:
+        try:
+            article = Article(url, language="en")
+            article.download()
+            article.parse()
+
+            text = article.text.strip()
+            return text if text else None
+        except Exception:
+            return None
+
+    def scrape_news(self, limit: int = 100, page_size: int = 100, incremental: bool = True):
+        last_timestamp = get_last_news_timestamp() if incremental else None
+
+        # Calculate total pages needed to respect `limit` and `page_size`
+        total_pages = math.ceil(limit / page_size)
+        fetched_count = 0
+        newest_timestamp = last_timestamp
+
+        for page in range(1, total_pages + 1):
+            params = {
+                'q': self.query,
+                'language': 'en',
+                'sort_by': 'publishedAt',
+                'page_size': min(page_size, limit - fetched_count),
+                'page': page
+            }
+            if incremental and last_timestamp:
+                params["from_param"] = last_timestamp
+
+            try:
+                res = self.client.get_everything(**params)
+            except Exception as e:
+                print(f"❌ Failed Scraping NewsAPI page {page}: {e}")
+                break
+
+            if res["status"] != 'ok' or not res["articles"]:
+                break
+
+            for art in res['articles']:
+                if fetched_count >= limit:
+                    break  # stop if we reached the limit
+
+                url = art.get("url")
+                if not url:
+                    continue
+
+                api_content = art.get("content")
+                expanded_content = None
+                if api_content and "[+" in api_content:
+                    expanded_content = self.fetch_full_content(url)
+
+                doc = {
+                    "url": url,
+                    "title": art["title"],
+                    "author": art.get("author"),
+                    "description": art.get("description"),
+                    "content": api_content,
+                    "expanded_content": expanded_content,
+                    "publishedAt": art["publishedAt"],
+                    "source_id": art["source"]["id"] if art["source"] else None,
+                    "source_name": art["source"]["name"] if art["source"] else None,
+                    "saved_utc": datetime.now(),
+                }
+
+                save_newsapi_article(doc)
+                fetched_count += 1
+
+                # Track newest timestamp for incremental updates
+                article_ts = art["publishedAt"]
+                if not newest_timestamp or article_ts > newest_timestamp:
+                    newest_timestamp = article_ts
+
+            if fetched_count >= limit:
+                break
+
+        # Update last timestamp if incremental
+        if incremental and newest_timestamp and newest_timestamp != last_timestamp:
+            update_last_news_timestamp(newest_timestamp)
+            print(f"🔃 Updated NewsAPI last timestamp: {newest_timestamp}")
 
 
-# reddit = praw.Reddit(
-#     client_id=client_id,
-#     client_secret=client_secret,
-#     user_agent=user_agent
-# )
-# print(reddit.read_only)
-# subreddit = reddit.subreddit("news")
-# for post in subreddit.new(limit=5):
-#     print(post.keys())
-# def main():
-#     connect_db()
-#     # drop_collections()
-#     scraper = RedditScraper()
-#     scraper.scrape(limit=5000)
-
-#     close_db()
-
-
-def run_scraper_job(scrape_type: Literal["top", "hot", "new", "rising"] = "new", limit: int = 100, incremental: bool = True):
+def run_reddit_scraper_job(scrape_type: Literal["top", "hot", "new", "rising"] = "new", limit: int = 100, incremental: bool = True):
     """Wrapper to be used by Airflow DAG."""
+    print("🚀 Starting RedditScraper job...")
     connect_db()
     try:
-        RS = RedditScraper()
-        RS.scrape(type=scrape_type, limit=limit, incremental=incremental)
+        scraper = RedditScraper()
+        scraper.scrape(type=scrape_type, limit=limit, incremental=incremental)
+        print("✅ Reddit Scraping complete!")
+    except Exception as e:
+        print(f"❌ Scraper failed: {e}")
+        raise
     finally:
         close_db()
+        print("🛑 Reddit Database connection closed.")
+
+
+def run_news_api_scraper_job(limit: int = 100, page_size: int = 100, incremental:int = True):
+    """Wrapper to be used by Airflow DAG."""
+    print("🚀 Starting NewsApi Scraper job...")
+    connect_db()
+    try:
+        NS = NewsApiScrapper()
+        NS.scrape_news(limit=limit, page_size=page_size, incremental=incremental)
+        print("✅ NewsAPI Scraping complete!")
+    except Exception as e:
+        print(f"❌ NewsAPI Scraper failed: {e}")
+        raise
+    finally:
+        close_db()
+        print("🛑 Database connection closed.")
 
 
 # if __name__ == "__main__":
 #     NS = NewsApiScrapper()
+#     NS.scrape_news(limit=5)
