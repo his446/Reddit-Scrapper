@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from backend.models.NewsArticleModel import NewsArticleModel
 from backend.models.RedditPostModel import RedditPost
+from backend.models.GnewsArticleModel import GnewsArticleModel
 
 load_dotenv()
 
@@ -21,6 +22,7 @@ def connect_db():
     """Initialize MongoDB indexes (id for posts, url for articles)."""
     db.reddit_posts.create_index([("id", ASCENDING)], unique=True, sparse=True)
     db.newsapi_articles.create_index([("url", ASCENDING)], unique=True, sparse=True)
+    db.gnews_articles.create_index([("url", ASCENDING)], unique=True, sparse=True)
     db.scrape_meta.create_index(
         [("subreddit", ASCENDING)], unique=True, sparse=True)
     print("✅ Connected to MongoDB!")
@@ -64,6 +66,20 @@ def save_newsapi_article(raw_data: dict):
     except Exception as e:
         print(f"❌ Failed to save article  {raw_data.get('url')}: {e}")
         
+def save_gnews_article(raw_data: dict):
+    """save or update a Gnews Article."""
+    
+    try:
+        art = GnewsArticleModel(**raw_data)
+        db.gnews_articles.update_one(
+            {"url": str(art.url)},
+            {"$set": art.model_dump(mode="json")},
+            upsert=True,
+        )
+        print(f"✅ Saved article: {art.title[:80]}")
+    except Exception as e:
+        print(f"❌ Failed to save article  {raw_data.get('url')}: {e}")
+        
 def get_last_reddit_timestamp(subreddit: str) -> float:
     """"Return the last created_utc timestamp for a subreddit."""
     record = db.scrape_meta.find_one({"subreddit": subreddit})
@@ -94,6 +110,20 @@ def update_last_news_timestamp(timestamp: str):
         upsert=True,
     )
 
+def get_last_gnews_timestamp() -> str | None:
+    """Return the last publishedAt timestamp for NewsAPI scraper."""
+    record = db.scrape_meta.find_one({"source": "gnews"})
+    return record["last_published_at"] if record else None
+
+
+def update_last_gnews_timestamp(timestamp: str):
+    """Update the last fetched timestamp for NewsAPI scraper."""
+    db.scrape_meta.update_one(
+        {"source": "gnews"},
+        {"$set": {"last_published_at": timestamp}},
+        upsert=True,
+    )
+
 def drop_collections():
     db.reddit_posts.drop()
     print("🗑️ reddit_posts Dropped !")
@@ -101,3 +131,5 @@ def drop_collections():
     print("🗑️ scrape_meta Dropped !")
     db.newsapi_articles.drop()
     print("🗑️ newsapi_articles Dropped !")
+    db.gnews_articles.drop()
+    print("🗑️ gnews_articles Dropped !")
