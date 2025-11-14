@@ -1,0 +1,8 @@
+gnews==0.4.2
+newsapi_python==0.2.7
+newspaper3k==0.2.8
+praw==7.8.1
+pydantic==2.12.4
+pydantic_settings==2.12.0
+pymongo==4.15.4
+python-dotenv==1.2.1

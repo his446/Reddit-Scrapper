@@ -16,7 +16,7 @@ from backend.db.mongo import close_db, connect_db, get_last_gnews_timestamp, sav
 #         )
 #         # Initialize GNews client
 #         self.client = GNews(language='en', max_results=10, period='30d', api_key=api_key)
-        
+
 #     def fetch_full_content(self, url: str) -> str | None:
 #         try:
 #             article = Article(url, language="en")
@@ -91,6 +91,11 @@ class GnewsScraper:
             'OR "neural network" OR LLM OR "generative AI"'
         )
         self.client = GNews(language="en", max_results=10, period="30d")
+        self.topics = [
+            "AI", "artificial intelligence", "machine learning", "deep learning",
+            "ChatGPT", "OpenAI", "neural network", "automation", "LLM",
+            "generative AI", "autonomous systems"
+        ]
 
     def fetch_full_content(self, url: str) -> str | None:
         """Attempt to extract full article text using newspaper3k."""
@@ -102,7 +107,7 @@ class GnewsScraper:
             return text if text else None
         except Exception:
             return None
-        
+
     def parse_datetime(self, date_str: str) -> datetime | None:
         """Handle multiple possible GNews date formats."""
         if not date_str:
@@ -142,16 +147,20 @@ class GnewsScraper:
                 if not url:
                     continue
 
-                publishedAt_raw = art.get("published date") or art.get("publishedAt")
-                publishedAt_dt = self.parse_datetime(publishedAt_raw) or datetime.utcnow()
+                publishedAt_raw = art.get(
+                    "published date") or art.get("publishedAt")
+                publishedAt_dt = self.parse_datetime(
+                    publishedAt_raw) or datetime.utcnow()
 
                 # Skip old articles if incremental is on
                 if incremental and last_timestamp and publishedAt_dt <= last_timestamp:
                     continue
 
                 publisher = art.get("publisher") or {}
-                source_name = publisher.get("title") or art.get("source") or "Unknown"
-                source_id = publisher.get("href") or source_name.lower().replace(" ", "_")
+                source_name = publisher.get(
+                    "title") or art.get("source") or "Unknown"
+                source_id = publisher.get(
+                    "href") or source_name.lower().replace(" ", "_")
 
                 expanded_content = self.fetch_full_content(url)
 
@@ -186,50 +195,32 @@ class GnewsScraper:
             print(f"🔃 Updated GNews last timestamp: {newest_timestamp}")
 
         print(f"✅ GNews scraping complete — {fetched_count} articles saved.")
-    
+
     def scrape_news(self, limit: int = 100, incremental: bool = True):
         last_timestamp = get_last_gnews_timestamp() if incremental else None
         newest_timestamp = last_timestamp
         fetched_count = 0
 
-        # ⚙️ Configuration
-        max_results_per_req = 10
-        max_requests_per_day = 100
+        MAX_REQUESTS = 100  # Free-tier limit
+        MAX_RESULTS = 10     # per request
 
-        # Derive date windows (e.g., 5-day slices up to 30 days back)
-        days_back = 30
-        window_days = 5
-        date_windows = []
-        today = datetime.now()
-
-        for i in range(0, days_back, window_days):
-            end = today - timedelta(days=i)
-            start = end - timedelta(days=window_days)
-            date_windows.append((start, end))
-
-        # Merge topics × date windows until we hit the request limit
+        # Build ordered topic list
         requests = []
         for topic in self.topics:
-            for start, end in date_windows:
-                if len(requests) >= max_requests_per_day:
-                    break
-                requests.append((topic, start, end))
-            if len(requests) >= max_requests_per_day:
+            if len(requests) >= MAX_REQUESTS:
                 break
+            requests.append(topic)
 
-        # 📰 Fetch data
-        for i, (topic, start, end) in enumerate(requests, start=1):
+        for idx, topic in enumerate(requests, start=1):
             if fetched_count >= limit:
                 break
 
-            from_str = start.strftime("%Y-%m-%dT00:00:00Z")
-            to_str = end.strftime("%Y-%m-%dT23:59:59Z")
+            print(f"📡 [{idx}/{len(requests)}] Fetching: {topic}")
 
             try:
-                print(f"📡 [{i}/{len(requests)}] Fetching topic '{topic}' ({from_str} → {to_str})")
-                articles = self.client.get_news(topic, from_=from_str, to_=to_str)
+                articles = self.client.get_news(topic)
             except Exception as e:
-                print(f"❌ Failed GNews request {i}: {e}")
+                print(f"❌ GNews request failed ({topic}): {e}")
                 continue
 
             if not articles:
@@ -243,10 +234,29 @@ class GnewsScraper:
                 if not url:
                     continue
 
-                publishedAt_raw = art.get("published date") or art.get("publishedAt")
-                publishedAt_dt = self.parse_datetime(publishedAt_raw) or datetime.now()
+                # normalize published date
+                published_raw = (
+                    art.get("published date")
+                    or art.get("publishedAt")
+                    or None
+                )
+                try:
+                    if published_raw:
+                        publishedAt = datetime.strptime(
+                            published_raw, "%a, %d %b %Y %H:%M:%S %Z"
+                        )
+                    else:
+                        publishedAt = datetime.utcnow()
+                except Exception:
+                    publishedAt = datetime.utcnow()
 
-                expanded_content = self.fetch_full_content(url) if "[+" in str(art.get("content") or "") else None
+                # incremental filtering
+                if incremental and last_timestamp and publishedAt <= last_timestamp:
+                    continue
+
+                expanded_content = None
+                if "[+" in str(art.get("content") or ""):
+                    expanded_content = self.fetch_full_content(url)
 
                 doc = {
                     "url": url,
@@ -255,23 +265,26 @@ class GnewsScraper:
                     "description": art.get("description"),
                     "content": art.get("content"),
                     "expanded_content": expanded_content,
-                    "publishedAt": publishedAt_dt,
+                    "publishedAt": publishedAt,
                     "source_id": None,
                     "source_name": art.get("source"),
-                    "saved_utc": datetime.now(),
+                    "saved_utc": datetime.utcnow(),
                 }
 
                 save_gnews_article(doc)
                 fetched_count += 1
 
-                if not newest_timestamp or publishedAt_dt > newest_timestamp:
-                    newest_timestamp = publishedAt_dt
+                if not newest_timestamp or publishedAt > newest_timestamp:
+                    newest_timestamp = publishedAt
 
         if incremental and newest_timestamp and newest_timestamp != last_timestamp:
             update_last_gnews_timestamp(newest_timestamp)
             print(f"🔃 Updated GNews last timestamp: {newest_timestamp}")
-                    
-def run_gnews_scraper_job(limit: int = 100, incremental:int = True):
+
+        print(f"✅ Finished GNews scraping — {fetched_count} articles stored.")
+
+
+def run_gnews_scraper_job(limit: int = 100, incremental: int = True):
     """Wrapper to be used by Airflow DAG."""
     print("🚀 Starting Gnews Scraper job...")
     connect_db()
